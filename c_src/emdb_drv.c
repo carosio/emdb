@@ -32,7 +32,7 @@
 #include <sys/param.h>  /* for MAXPATHLEN constant */
 #include <erl_nif.h>    /* for Erlang NIF interface */
 #include "uthash.h"     /* for uthash */
-#include "mdb.h"        /* for MDB interface */
+#include "lmdb.h"        /* for MDB interface */
 
 
 
