@@ -34,11 +34,21 @@
 -export([
          close/0,
 
+	 txn_begin/0,
+	 txn_commit/0,
+
          put/2,
+         append/2,
          get/1,
          del/1,
 
          update/2,
+
+	 cursor_open/0,
+	 cursor_close/0,
+	 cursor_next/0,
+	 cursor_set/1,
+	 cursor_del/0,
 
          drop/0
         ]).
@@ -59,31 +69,75 @@ close() ->
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-put(Key, Val) when is_binary(Key) andalso is_binary(Val) ->
-    emdb_drv:put(Handle, Key, Val).
+put(Key, Val) ->%when is_binary(Key) andalso is_binary(Val) ->
+    emdb_drv:put(Handle, term_to_binary(Key), term_to_binary(Val)).
 
 
-%%--------------------------------------------------------------------
-%% @doc 
-%% @end
-%%--------------------------------------------------------------------
-get(Key) when is_binary(Key) ->
-    emdb_drv:get(Handle, Key).
+append(Key, Val) ->%when is_binary(Key) andalso is_binary(Val) ->
+    emdb_drv:append(Handle, term_to_binary(Key), term_to_binary(Val)).
 
 %%--------------------------------------------------------------------
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-del(Key) when is_binary(Key) ->
-    emdb_drv:del(Handle, Key).
+get(Key)->% when is_binary(Key) ->
+    case emdb_drv:get(Handle, term_to_binary(Key)) of
+	{ok, V} ->
+	    {ok, binary_to_term(V)};
+	V ->
+	    V
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-update(Key, Val) when is_binary(Key) andalso is_binary(Val) ->
-    emdb_drv:update(Handle, Key, Val).
+del(Key) ->% when is_binary(Key) ->
+    emdb_drv:del(Handle, term_to_binary(Key)).
 
+%%--------------------------------------------------------------------
+%% @doc 
+%% @end
+%%--------------------------------------------------------------------
+update(Key, Val) ->%when is_binary(Key) andalso is_binary(Val) ->
+    emdb_drv:update(Handle, term_to_binary(Key), term_to_binary(Val)).
+
+
+cursor_open() ->
+    emdb_drv:cursor_open(Handle).
+
+cursor_close() ->
+    emdb_drv:cursor_close(Handle).
+
+cursor_next() ->
+    case emdb_drv:cursor_next(Handle) of
+	{ok, {K,V}} ->
+	    {ok, {binary_to_term(K), binary_to_term(V)}};
+	V ->
+	    V
+    end.
+
+cursor_set(Key) ->
+    case emdb_drv:cursor_set(Handle, term_to_binary(Key)) of
+	{ok, {K,V}} ->
+	    {ok, {binary_to_term(K), binary_to_term(V)}};
+	V ->
+	    V
+    end.
+
+cursor_del() ->
+    case emdb_drv:cursor_del(Handle) of
+	{ok, {K,V}} ->
+	    {ok, {binary_to_term(K), binary_to_term(V)}};
+	V ->
+	    V
+    end.
+
+txn_begin() ->
+    emdb_drv:txn_begin(Handle).
+
+txn_commit() ->
+    emdb_drv:txn_commit(Handle).
 
 %%--------------------------------------------------------------------
 %% @doc 

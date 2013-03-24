@@ -34,11 +34,21 @@
          open/3,
          close/1,
 
+	 txn_begin/1,
+	 txn_commit/1,
+
          put/3,
+	 append/3,
          get/2,
          del/2,
 
          update/3,
+	 
+	 cursor_open/1,
+	 cursor_close/1,
+	 cursor_next/1,
+	 cursor_set/2,
+	 cursor_del/1,
 
          drop/1
         ]).
@@ -80,6 +90,9 @@ put(_Handle, _Key, _Val) ->
     ?NOT_LOADED.
 
 
+append(_Handle, _Key, _Val) ->
+    ?NOT_LOADED.
+
 %%--------------------------------------------------------------------
 %% @doc 
 %% @end
@@ -101,6 +114,28 @@ del(_Handle, _Key) ->
 %%--------------------------------------------------------------------
 update(_Handle, _Key, _Val) ->
     ?NOT_LOADED.
+
+cursor_open(Handle) ->
+    ?NOT_LOADED.
+
+cursor_close(Handle) ->
+    ?NOT_LOADED.
+
+cursor_next(Handle) ->
+    ?NOT_LOADED.
+
+cursor_set(Handle, Key) ->
+    ?NOT_LOADED.
+
+cursor_del(Handle) ->
+    ?NOT_LOADED.
+
+txn_begin(Handle) ->
+    ?NOT_LOADED.
+
+txn_commit(Handle) ->
+    ?NOT_LOADED.
+
 
 %%--------------------------------------------------------------------
 %% @doc 
