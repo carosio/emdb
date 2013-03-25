@@ -130,9 +130,12 @@ cursor_order(Config) ->
 		    end),
     error_logger:info_msg("applied to inputs~n", []),
     Handle = proplists:get_value(handle, Config),
-    Entrys = lists:flatten([[[{VNode, Num, Idx} || Idx <- lists:seq(1,10)] || Num <- lists:seq(1,10)] || VNode <- [vnode1]]),
+    VNodes = [vnode1],
+    Groups = lists:seq(1,10),
+    LogEntries = lists:seq(1,10000),
+    Entrys = lists:flatten([[[{VNode, Num, Idx} || Idx <- LogEntries] || Num <- Groups] || VNode <- VNodes]),
     ok = Handle:txn_begin(),
-    apply_to_inputs([vnode1], lists:seq(1,10), lists:seq(1,10), 
+    apply_to_inputs(VNodes, Groups, LogEntries, 
 		    fun(A, B, C) ->
 			    case Handle:put({A,B,C}, 1) of
 				error_txn_full ->
@@ -156,6 +159,7 @@ cursor_order(Config) ->
     %% 			 end),
     error_logger:info_msg("added entries, took: ~p~n", [{0}]),
     Handle:cursor_open(),
+%    apply_to_inputs(),
     walk_db(Handle, Entrys),
     error_logger:info_msg("walked db~n", []),
     error_cursor_get = Handle:cursor_next(),
@@ -166,19 +170,15 @@ cursor_order(Config) ->
     error_cursor_get = Handle:cursor_next(),
     {ok, {H, _}} = Handle:cursor_set(H),
     ok = Handle:cursor_close(),
-    ok = Handle:txn_commit(),
     ok = Handle:cursor_open(),
-        error_logger:info_msg("starting with deletion~n", []),
-    ok = Handle:cursor_next(),
-
+    {ok, _} = Handle:cursor_next(),
+    error_logger:info_msg("starting with deletion~n", []),
     ok = delete_upto(Handle, H),
     ok = Handle:cursor_close(),
-    Handle:txn_commit(),
     Handle:cursor_open(),
     walk_db(Handle,[H|LastEntrys]),    
     error_cursor_set = Handle:cursor_set(hd(Entrys)),
-    Handle:cursor_close(),
-    Handle:txn_commit(). 
+    Handle:cursor_close(). 
 
 delete_upto(Handle, DontDelete) ->
     case Handle:cursor_del() of

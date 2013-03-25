@@ -243,10 +243,10 @@ static ERL_NIF_TERM emdb_txn_commit_nif (ErlNifEnv * env,
   if (mdb_txn_commit(node -> txn))
     FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
 
-  if (node -> cursor != NULL)
-    node -> cursor = NULL;
-  
+
+  node -> cursor = NULL;
   node -> txn = NULL;
+
   return atom_ok;
   
  err1:
@@ -696,11 +696,11 @@ static ERL_NIF_TERM emdb_cursor_close_nif (ErlNifEnv * env,
 
   mdb_cursor_close(node -> cursor);
     
-    /*  if (mdb_txn_commit(node -> txn))
+  if (mdb_txn_commit(node -> txn))
     FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
-  */
+  
   node -> cursor = NULL;
-  //  node -> txn = NULL;
+  node -> txn = NULL;
 
   return atom_ok;
   
