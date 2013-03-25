@@ -75,6 +75,7 @@ static struct emdb_map_t * emdb_map = NULL;
 #define EMDB_TXN_COMMIT_ERR          "error_txn_commit"
 #define EMDB_TXN_STARTED_ERR         "error_txn_already_started"
 #define EMDB_TXN_FULL_ERR            "error_txn_full"
+#define EMDB_NO_TXN_ERR              "error_not_in_a_transaction"
 #define EMDB_OPEN_DBI_ERR            "error_open_dbi"
 #define EMDB_INVALID_HANDLE_ERR      "error_invalid_handle"
 #define EMDB_PUT_ERR                 "error_put"
@@ -236,6 +237,8 @@ static ERL_NIF_TERM emdb_txn_commit_nif (ErlNifEnv * env,
   if (NULL == node)
     FAIL_FAST(EMDB_INVALID_HANDLE_ERR, err1);
 
+  if (node -> txn == NULL)
+    FAIL_FAST(EMDB_NO_TXN_ERR, err1);
 
   if (mdb_txn_commit(node -> txn))
     FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
@@ -320,12 +323,16 @@ static ERL_NIF_TERM emdb_put_nif (ErlNifEnv * env,
   mdata.mv_data = val.data;
 
   ret = mdb_put(txn, node -> dbi, & mkey, & mdata, MDB_NOOVERWRITE);
+
   if (MDB_KEYEXIST == ret)
     FAIL_FAST(EMDB_RET_KEY_EXIST, err1);
+
   if (MDB_TXN_FULL == ret)
     FAIL_FAST(EMDB_TXN_FULL_ERR, err1);
+
   if (ret)
     FAIL_FAST(EMDB_PUT_ERR, err1);
+  
   
   if (node -> txn == NULL)
     if (mdb_txn_commit(txn))
@@ -334,10 +341,18 @@ static ERL_NIF_TERM emdb_put_nif (ErlNifEnv * env,
   return atom_ok;
 
  err1:
-  mdb_txn_abort(txn);
+
+  if (node -> txn == NULL)
+    mdb_txn_abort(txn);
+
  err2:
+
   return enif_make_atom(env, err);
+
 }
+
+
+//appends happen to the end of the db, incorrect order leads to inconsistency
 
 static ERL_NIF_TERM emdb_append_nif (ErlNifEnv * env,
                                   int argc, const ERL_NIF_TERM argv[])
@@ -380,8 +395,10 @@ static ERL_NIF_TERM emdb_append_nif (ErlNifEnv * env,
   mdata.mv_data = val.data;
 
   ret = mdb_put(txn, node -> dbi, & mkey, & mdata, MDB_APPEND);
+
   if (MDB_KEYEXIST == ret)
     FAIL_FAST(EMDB_RET_KEY_EXIST, err1);
+
   if (ret)
     FAIL_FAST(EMDB_PUT_ERR, err1);
   /*
@@ -391,15 +408,20 @@ static ERL_NIF_TERM emdb_append_nif (ErlNifEnv * env,
   return atom_ok;
 
  err1:
+  
   mdb_txn_abort(txn);
+ 
  err2:
+  
   return enif_make_atom(env, err);
+
 }
 
 
 static ERL_NIF_TERM emdb_get_nif (ErlNifEnv * env,
                                   int argc, const ERL_NIF_TERM argv[])
 {
+
   ErlNifBinary key;
   ErlNifBinary val = {0};
   ERL_NIF_TERM term;
@@ -420,6 +442,7 @@ static ERL_NIF_TERM emdb_get_nif (ErlNifEnv * env,
   handle = (MDB_env *) addr;
 
   HASH_FIND_PTR(emdb_map, & handle, node);
+
   if (NULL == node)
     return enif_make_atom(env, EMDB_INVALID_HANDLE_ERR);
 
@@ -428,10 +451,12 @@ static ERL_NIF_TERM emdb_get_nif (ErlNifEnv * env,
 
   mkey.mv_size  = key.size;
   mkey.mv_data  = key.data;
-
-  if (mdb_txn_begin(handle, NULL, 0, & txn))
-    FAIL_FAST(EMDB_TXN_BEGIN_ERR, err);
-
+  
+  if (node -> txn == NULL) {
+    if (mdb_txn_begin(handle, NULL, 0, & txn))
+      FAIL_FAST(EMDB_TXN_BEGIN_ERR, err);
+  } else txn = node -> txn;
+  
   if(mdb_get(txn, node -> dbi, & mkey, & mdata))
     {
       mdb_txn_abort(txn);
@@ -442,7 +467,8 @@ static ERL_NIF_TERM emdb_get_nif (ErlNifEnv * env,
   val.data = mdata.mv_data;
   
   term = enif_make_binary(env, &val);
-  mdb_txn_abort(txn);
+  if (node -> txn == NULL)
+    mdb_txn_abort(txn);
 
   if (! term)
     FAIL_FAST(EMDB_MAKE_BINARY_ERR, err);
@@ -485,22 +511,27 @@ static ERL_NIF_TERM emdb_del_nif (ErlNifEnv * env,
 
   mkey.mv_size  = key.size;
   mkey.mv_data  = key.data;
-
-  if (mdb_txn_begin(handle, NULL, 0, & txn))
-    FAIL_FAST(EMDB_TXN_BEGIN_ERR, err);
-
+  
+  if (node -> txn == NULL) {
+    if (mdb_txn_begin(handle, NULL, 0, & txn))
+      FAIL_FAST(EMDB_TXN_BEGIN_ERR, err);
+  } else txn = node -> txn;
+  
   ret = mdb_del(txn, node -> dbi, & mkey, NULL);
-
-  if (mdb_txn_commit(txn))
-    FAIL_FAST(EMDB_TXN_COMMIT_ERR, err);
+  
+  if (node -> txn == NULL)
+    if (mdb_txn_commit(txn))
+      FAIL_FAST(EMDB_TXN_COMMIT_ERR, err);
 
   if(ret)
     return atom_none;
   
   return atom_ok;
-
+  
  err:
+  
   return enif_make_atom(env, err);
+
 }
 
 
@@ -535,9 +566,11 @@ static ERL_NIF_TERM emdb_update_nif (ErlNifEnv * env,
   if (! enif_inspect_iolist_as_binary(env, argv[2], &val))
     return enif_make_badarg(env);
 
-  if (mdb_txn_begin(handle, NULL, 0, & txn))
-    FAIL_FAST(EMDB_TXN_BEGIN_ERR, err2);
-
+  if (node -> txn == NULL) {
+    if (mdb_txn_begin(handle, NULL, 0, & txn))
+      FAIL_FAST(EMDB_TXN_BEGIN_ERR, err2);
+  } else txn = node -> txn;
+  
   mkey.mv_size  = key.size;
   mkey.mv_data  = key.data;
   mdata.mv_size = val.size;
@@ -546,9 +579,10 @@ static ERL_NIF_TERM emdb_update_nif (ErlNifEnv * env,
   if (mdb_put(txn, node -> dbi, & mkey, & mdata, 0))
     FAIL_FAST(EMDB_UPDATE_ERR, err1);
 
-  if (mdb_txn_commit(txn))
-    FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
-
+  if (node -> txn ==NULL)
+    if (mdb_txn_commit(txn))
+      FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
+  
   return atom_ok;
 
  err1:
@@ -613,7 +647,7 @@ static ERL_NIF_TERM emdb_cursor_open_nif (ErlNifEnv * env,
     return enif_make_badarg(env);
   
   handle = (MDB_env *) addr;
-
+  
   HASH_FIND_PTR(emdb_map, & handle, node);
   if (NULL == node)
     FAIL_FAST(EMDB_INVALID_HANDLE_ERR, err1);
@@ -621,9 +655,9 @@ static ERL_NIF_TERM emdb_cursor_open_nif (ErlNifEnv * env,
   if (node -> cursor != NULL)
     FAIL_FAST(EMDB_CURSOR_IN_USE_ERR, err1);
 
-  if (mdb_txn_begin(handle, NULL, 0, & (node -> txn)))
-    FAIL_FAST(EMDB_TXN_BEGIN_ERR, err1);
-
+  if (node -> txn == NULL)
+    if (mdb_txn_begin(handle, NULL, 0, & (node -> txn)))
+      FAIL_FAST(EMDB_TXN_BEGIN_ERR, err1);
   
   if( mdb_cursor_open(node -> txn, node -> dbi, &(node -> cursor)) )
     FAIL_FAST(EMDB_CURSOR_OPEN_ERR, err1);
@@ -631,7 +665,9 @@ static ERL_NIF_TERM emdb_cursor_open_nif (ErlNifEnv * env,
   return atom_ok;
   
  err1:
+  
   return enif_make_atom(env, err);
+  
 }
 
 
@@ -660,16 +696,18 @@ static ERL_NIF_TERM emdb_cursor_close_nif (ErlNifEnv * env,
 
   mdb_cursor_close(node -> cursor);
     
-  if (mdb_txn_commit(node -> txn))
+    /*  if (mdb_txn_commit(node -> txn))
     FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
-
+  */
   node -> cursor = NULL;
-  node -> txn = NULL;
+  //  node -> txn = NULL;
 
   return atom_ok;
   
  err1:
+
   return enif_make_atom(env, err);
+
 }
 
 
@@ -701,6 +739,9 @@ static ERL_NIF_TERM emdb_cursor_next_nif (ErlNifEnv * env,
   if (NULL == node)
     FAIL_FAST(EMDB_INVALID_HANDLE_ERR, err1);
 
+  if (node -> txn == NULL)
+    FAIL_FAST(EMDB_NO_TXN_ERR, err1);
+
   if (node -> cursor == NULL)
     FAIL_FAST(EMDB_CURSOR_NO_CURSOR_ERR, err1);
   
@@ -728,7 +769,9 @@ static ERL_NIF_TERM emdb_cursor_next_nif (ErlNifEnv * env,
                          enif_make_tuple(env, 2, kterm, vterm));
   
  err1:
+
   return enif_make_atom(env, err);
+
 }
 
 
@@ -788,6 +831,7 @@ static ERL_NIF_TERM emdb_cursor_set_nif (ErlNifEnv * env,
                          enif_make_tuple(env, 2, kterm, vterm));
   
  err1:
+
   return enif_make_atom(env, err);
 }
 
@@ -828,7 +872,7 @@ static ERL_NIF_TERM emdb_cursor_del_nif (ErlNifEnv * env,
     FAIL_FAST(EMDB_CURSOR_DEL_ERR, err1);
 
   if ( mdb_cursor_get(node -> cursor, &rkey, &rdata, MDB_SET_RANGE) ) 
-    FAIL_FAST(EMDB_CURSOR_GET_ERR, err1);
+    FAIL_FAST(EMDB_CURSOR_SET_ERR, err1);
   
   val.size = rdata.mv_size;
   val.data = rdata.mv_data;
@@ -850,36 +894,6 @@ static ERL_NIF_TERM emdb_cursor_del_nif (ErlNifEnv * env,
   return enif_make_atom(env, err);
 }
 
-
-/*
-static ERL_NIF_TERM emdb_cursor_has_next_nif (ErlNifEnv * env,
-					   int argc, const ERL_NIF_TERM argv[])
-{
-  MDB_env * handle;
-  struct emdb_map_t * node;
-  unsigned long addr;
-  char * err;
-  MDB_cursor * cursor;
-
-  if (! enif_get_ulong(env, argv[0], & addr))
-    return enif_make_badarg(env);
-  
-  handle = (MDB_env *) addr;
-  
-  HASH_FIND_PTR(emdb_map, & handle, node);
-  if (NULL == node)
-    FAIL_FAST(EMDB_INVALID_HANDLE_ERR, err1);
-  
-  if (node -> cursor == NULL)
-    FAIL_FAST(EMDB_CURSOR_NO_CURSOR_ERR, err1);
-  
-  cursor = &(node -> cursor);
-  if( cursor -> 
-  
- err1:
-  return enif_make_atom(env, err);
-}
-*/
 
 static int emdb_load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info)
   {

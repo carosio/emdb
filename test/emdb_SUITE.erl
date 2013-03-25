@@ -124,37 +124,61 @@ cursor_order() ->
     [].
 
 cursor_order(Config) ->
+    apply_to_inputs([vnode1], lists:seq(1,2), lists:seq(1,10),
+		    fun(A,B,C) ->
+			    error_logger:info_msg("trying to store: ~p~n", [{A,B,C}])
+		    end),
+    error_logger:info_msg("applied to inputs~n", []),
     Handle = proplists:get_value(handle, Config),
-    Entrys = lists:flatten([[[{VNode, Num, Idx} || Idx <- lists:seq(1,100000)] || Num <- lists:seq(1,10)] || VNode <- [vnode1]]),
-    {Time, _} = timer:tc(fun() -> 
-				 ok = Handle:txn_begin(),
-				 [case Handle:put(E, 1) of
-				      error_txn_full ->
-					  Handle:txn_commit(),
-					  Handle:txn_begin(),
-					  Handle:put(E,1);
-				      ok -> ok
-				  end || E <- lists:reverse(Entrys)],
-				 ok = Handle:txn_commit() 
-			 end),
-    error_logger:info_msg("added entries, took: ~p~n", [{Time}]),
+    Entrys = lists:flatten([[[{VNode, Num, Idx} || Idx <- lists:seq(1,10)] || Num <- lists:seq(1,10)] || VNode <- [vnode1]]),
+    ok = Handle:txn_begin(),
+    apply_to_inputs([vnode1], lists:seq(1,10), lists:seq(1,10), 
+		    fun(A, B, C) ->
+			    case Handle:put({A,B,C}, 1) of
+				error_txn_full ->
+				    Handle:txn_commit(),
+				    Handle:txn_begin(),
+				    Handle:put({A,B,C},1);
+				ok -> ok
+			    end
+		    end),
+    ok = Handle:txn_commit(),
+    %% {Time, _} = timer:tc(fun() -> 
+    %% 				 ok = Handle:txn_begin(),
+    %% 				 [case Handle:put(E, 1) of
+    %% 				      error_txn_full ->
+    %% 					  Handle:txn_commit(),
+    %% 					  Handle:txn_begin(),
+    %% 					  Handle:put(E,1);
+    %% 				      ok -> ok
+    %% 				  end || E <- lists:reverse(Entrys)],
+    %% 				 ok = Handle:txn_commit() 
+    %% 			 end),
+    error_logger:info_msg("added entries, took: ~p~n", [{0}]),
     Handle:cursor_open(),
     walk_db(Handle, Entrys),
+    error_logger:info_msg("walked db~n", []),
     error_cursor_get = Handle:cursor_next(),
-    {_, [H|LastEntrys]} = lists:split(1900, Entrys),
+    {_, [H|LastEntrys]} = lists:split(10, Entrys),
     {ok, {H, _}} = Handle:cursor_set(H),
     walk_db(Handle, LastEntrys),
+    error_logger:info_msg("walked db again~n", []),
     error_cursor_get = Handle:cursor_next(),
     {ok, {H, _}} = Handle:cursor_set(H),
-    Handle:cursor_close(),
-    Handle:cursor_open(),
-    Handle:cursor_next(),
-    delete_upto(Handle, H),
     ok = Handle:cursor_close(),
+    ok = Handle:txn_commit(),
+    ok = Handle:cursor_open(),
+        error_logger:info_msg("starting with deletion~n", []),
+    ok = Handle:cursor_next(),
+
+    ok = delete_upto(Handle, H),
+    ok = Handle:cursor_close(),
+    Handle:txn_commit(),
     Handle:cursor_open(),
     walk_db(Handle,[H|LastEntrys]),    
     error_cursor_set = Handle:cursor_set(hd(Entrys)),
-    Handle:cursor_close(). 
+    Handle:cursor_close(),
+    Handle:txn_commit(). 
 
 delete_upto(Handle, DontDelete) ->
     case Handle:cursor_del() of
@@ -162,11 +186,27 @@ delete_upto(Handle, DontDelete) ->
 	    error_logger:info_msg("deleted upto: ~p~n", [DontDelete]),
 	    ok;
 	{ok, {_K, _}} ->
+	    error_logger:error_msg("in delete_upto, deleted ~p~n", [_K]),
 	    delete_upto(Handle, DontDelete);
 	V ->
 	    error_logger:error_msg("in delete_upto, got unhandled case clause: ~p", [V]),
 	    ok
     end.    
+
+apply_to_inputs(D1, D2, D3, Fun) ->
+    HelperF = fun(F, [H1|T1], [H2|T2], [H3|T3]) ->
+		      Fun(H1, H2, H3),
+		      F(F, [H1|T1], [H2|T2], T3);
+		 (F, [H1|[]], [H2|[]], []) ->
+		      ok;
+		 (F, [H1|T1], [H2|[]], []) ->
+		      F(F, T1, D2, D3);
+		 (F, L1, [H2|T2], []) ->
+		      F(F, L1, T2, D3);
+		 (F, [H1|T1], [], []) ->
+		      F(F, T1, D2, D3)
+	      end,
+    HelperF(HelperF, D1, D2, D3).
 
 walk_db(_Handle, []) ->
     ok;
