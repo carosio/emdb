@@ -35,6 +35,7 @@
          close/1,
 
 	 txn_begin/1,
+	 txn_begin_ro/1,
 	 txn_commit/1,
 
          put/3,
@@ -131,6 +132,9 @@ cursor_del(Handle) ->
     ?NOT_LOADED.
 
 txn_begin(Handle) ->
+    ?NOT_LOADED.
+
+txn_begin_ro(Handle) ->
     ?NOT_LOADED.
 
 txn_commit(Handle) ->

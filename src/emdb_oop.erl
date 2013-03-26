@@ -35,6 +35,7 @@
          close/0,
 
 	 txn_begin/0,
+	 txn_begin_ro/0,
 	 txn_commit/0,
 
          put/2,
@@ -135,6 +136,9 @@ cursor_del() ->
 
 txn_begin() ->
     emdb_drv:txn_begin(Handle).
+
+txn_begin_ro() ->
+    emdb_drv:txn_begin_ro(Handle).
 
 txn_commit() ->
     emdb_drv:txn_commit(Handle).
