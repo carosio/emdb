@@ -82,8 +82,8 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     error_logger:info_msg("in end_per_testcase~n", []),
     Handle = proplists:get_value(handle, Config),
-    Handle:drop(),
-    Handle:close(),
+    ok = Handle:drop(),
+    ok = Handle:close(),
     ok.
 
 %%--------------------------------------------------------------------

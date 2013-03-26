@@ -3,7 +3,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2013 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -117,7 +117,7 @@ int mdb_midl_insert( MDB_IDL ids, MDB_ID id )
 }
 #endif
 
-MDB_IDL mdb_midl_alloc()
+MDB_IDL mdb_midl_alloc(void)
 {
 	MDB_IDL ids = malloc((MDB_IDL_UM_MAX+1) * sizeof(MDB_ID));
 	*ids++ = MDB_IDL_UM_MAX;
@@ -132,7 +132,7 @@ void mdb_midl_free(MDB_IDL ids)
 int mdb_midl_shrink( MDB_IDL *idp )
 {
 	MDB_IDL ids = *idp;
-	if (ids[-1] > MDB_IDL_UM_MAX) {
+	if (*(--ids) > MDB_IDL_UM_MAX) {
 		ids = realloc(ids, (MDB_IDL_UM_MAX+1) * sizeof(MDB_ID));
 		*ids++ = MDB_IDL_UM_MAX;
 		*idp = ids;
@@ -192,7 +192,7 @@ mdb_midl_sort( MDB_IDL ids )
 	int i,j,k,l,ir,jstack;
 	MDB_ID a, itmp;
 
-	ir = ids[0];
+	ir = (int)ids[0];
 	l = 1;
 	jstack = 0;
 	for(;;) {
@@ -232,7 +232,7 @@ mdb_midl_sort( MDB_IDL ids )
 			ids[l+1] = ids[j];
 			ids[j] = a;
 			jstack += 2;
-			if (ir-i+1 >= j-1) {
+			if (ir-i+1 >= j-l) {
 				istack[jstack] = ir;
 				istack[jstack-1] = i;
 				ir = j-1;
@@ -255,7 +255,7 @@ unsigned mdb_mid2l_search( MDB_ID2L ids, MDB_ID id )
 	unsigned base = 0;
 	unsigned cursor = 1;
 	int val = 0;
-	unsigned n = ids[0].mid;
+	unsigned n = (unsigned)ids[0].mid;
 
 	while( 0 < n ) {
 		unsigned pivot = n >> 1;
@@ -304,7 +304,7 @@ int mdb_mid2l_insert( MDB_ID2L ids, MDB_ID2 *id )
 	} else {
 		/* insert id */
 		ids[0].mid++;
-		for (i=ids[0].mid; i>x; i--)
+		for (i=(unsigned)ids[0].mid; i>x; i--)
 			ids[i] = ids[i-1];
 		ids[x] = *id;
 	}

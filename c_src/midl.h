@@ -11,7 +11,7 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2012 The OpenLDAP Foundation.
+ * Copyright 2000-2013 The OpenLDAP Foundation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -118,7 +118,7 @@ int mdb_midl_insert( MDB_IDL ids, MDB_ID id );
 	 * Allocates memory for an IDL of a default size.
 	 * @return	IDL on success, NULL on failure.
 	 */
-MDB_IDL mdb_midl_alloc();
+MDB_IDL mdb_midl_alloc(void);
 
 	/** Free an IDL.
 	 * @param[in] ids	The IDL to free.

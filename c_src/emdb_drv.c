@@ -213,8 +213,9 @@ static ERL_NIF_TERM emdb_close_nif (ErlNifEnv * env,
   HASH_DEL(emdb_map, node);
 
   printf("closing the handle\n");
-  
-  mdb_close(node -> env, node -> dbi);
+  if (node -> dbi != NULL)
+    mdb_close(node -> env, node -> dbi);
+
   mdb_env_close(node -> env);
   emdb_free(node);
 
@@ -689,13 +690,16 @@ static ERL_NIF_TERM emdb_drop_nif (ErlNifEnv * env,
 
   if (mdb_txn_begin(handle, NULL, 0, & txn))
     FAIL_FAST(EMDB_TXN_BEGIN_ERR, err2);
+  printf("next: dropping the db\n");
+  ret = mdb_drop(txn, node -> dbi, 1);
+  node -> dbi = NULL;
 
-  ret = mdb_drop(txn, node -> dbi, 0);
   if (ret)
     FAIL_FAST(EMDB_DROP_ERR, err1);
 
   if (mdb_txn_commit(txn))
     FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
+  printf("dropped the db\n");
 
   return atom_ok;
 
