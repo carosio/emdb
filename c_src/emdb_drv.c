@@ -186,6 +186,38 @@ static ERL_NIF_TERM emdb_open_nif (ErlNifEnv * env,
 			 enif_make_atom(env, err));
 }
 
+static ERL_NIF_TERM emdb_close_nif (ErlNifEnv * env,
+                                    int argc, const ERL_NIF_TERM argv[])
+{
+  MDB_env * handle;
+  struct emdb_map_t * node;
+  unsigned long addr;
+
+  printf("parsing the handle\n");
+
+  if (! enif_get_ulong(env, argv[0], & addr))
+    return enif_make_badarg(env);
+  
+  handle = (MDB_env *) addr;
+
+  printf("pulling the handle out of the hashmap\n");
+
+  HASH_FIND_PTR(emdb_map, & handle, node);
+  if (NULL == node)
+    return enif_make_atom(env, EMDB_INVALID_HANDLE_ERR);
+
+  printf("deleting the hashmap entry\n");
+
+  HASH_DEL(emdb_map, node);
+
+  printf("closing the handle\n");
+
+  mdb_env_close(handle);
+  emdb_free(node);
+
+  return atom_ok;
+ }
+
 
 static ERL_NIF_TERM emdb_txn_begin_nif (ErlNifEnv * env,
 						int argc, const ERL_NIF_TERM argv[])
@@ -280,8 +312,8 @@ static ERL_NIF_TERM emdb_txn_commit_nif (ErlNifEnv * env,
   if (node -> txn == NULL)
     FAIL_FAST(EMDB_NO_TXN_ERR, err1);
 
-  if (mdb_txn_commit(node -> txn))
-    FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
+  if (ret = mdb_txn_commit(node -> txn))
+    FAIL_FAST(EMDB_TXN_COMMIT_ERR, err2);
 
 
   node -> cursor = NULL;
@@ -290,36 +322,19 @@ static ERL_NIF_TERM emdb_txn_commit_nif (ErlNifEnv * env,
   return atom_ok;
   
  err1:
-  
   return enif_make_tuple(env, 2, 
 			 atom_error,
 			 enif_make_atom(env, err));
+  
+ err2:
+  return enif_make_tuple(env, 2, 
+			 atom_error,
+			 enif_make_atom(env, err),
+			 enif_make_int(env, ret));
+			 
 }
 
 
-static ERL_NIF_TERM emdb_close_nif (ErlNifEnv * env,
-                                    int argc, const ERL_NIF_TERM argv[])
-{
-  MDB_env * handle;
-  struct emdb_map_t * node;
-  unsigned long addr;
-
-  if (! enif_get_ulong(env, argv[0], & addr))
-    return enif_make_badarg(env);
-  
-  handle = (MDB_env *) addr;
-
-  HASH_FIND_PTR(emdb_map, & handle, node);
-  if (NULL == node)
-    return enif_make_atom(env, EMDB_INVALID_HANDLE_ERR);
-
-  HASH_DEL(emdb_map, node);
-
-  mdb_env_close(handle);
-  emdb_free(node);
-
-  return atom_ok;
- }
 
 
 static ERL_NIF_TERM emdb_put_nif (ErlNifEnv * env,
@@ -744,6 +759,8 @@ static ERL_NIF_TERM emdb_cursor_close_nif (ErlNifEnv * env,
   char * err;
   int ret;
   
+  printf("start of cursor_close_nif\n");
+    
   if (! enif_get_ulong(env, argv[0], & addr))
     return enif_make_badarg(env);
   
@@ -755,7 +772,9 @@ static ERL_NIF_TERM emdb_cursor_close_nif (ErlNifEnv * env,
 
   if (node -> cursor == NULL)
     FAIL_FAST(EMDB_CURSOR_NO_CURSOR_ERR, err1);
-
+  
+  printf("next step: closing the cursor\n");
+  
   mdb_cursor_close(node -> cursor);
     
   if (mdb_txn_commit(node -> txn))

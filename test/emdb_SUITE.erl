@@ -68,7 +68,7 @@ end_per_group(_GroupName, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 init_per_testcase(_TestCase, Config) ->
-    {ok, Handle} = emdb:open("./emdb_test", 104857600),
+    {ok, Handle} = emdb:open("./emdb_test", 104857600000),
     [{handle, Handle} | Config].
 
 %%--------------------------------------------------------------------
@@ -80,6 +80,7 @@ init_per_testcase(_TestCase, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 end_per_testcase(_TestCase, Config) ->
+    error_logger:info_msg("in end_per_testcase~n", []),
     Handle = proplists:get_value(handle, Config),
     Handle:drop(),
     Handle:close(),
@@ -124,65 +125,72 @@ cursor_order() ->
     [].
 
 cursor_order(Config) ->
-    apply_to_inputs([vnode1], lists:seq(1,2), lists:seq(1,10),
-		    fun(A,B,C) ->
-			    error_logger:info_msg("trying to store: ~p~n", [{A,B,C}])
-		    end),
-    error_logger:info_msg("applied to inputs~n", []),
     Handle = proplists:get_value(handle, Config),
     VNodes = [vnode1],
-    Groups = lists:seq(1,10),
-    LogEntries = lists:seq(1,10000),
-    Entrys = lists:flatten([[[{VNode, Num, Idx} || Idx <- LogEntries] || Num <- Groups] || VNode <- VNodes]),
-    ok = Handle:txn_begin(),
-    apply_to_inputs(VNodes, Groups, LogEntries, 
-		    fun(A, B, C) ->
-			    case Handle:put({A,B,C}, 1) of
-				{error, error_txn_full} ->
-				    Handle:txn_commit(),
-				    Handle:txn_begin(),
-				    Handle:put({A,B,C},1);
-				ok -> ok
+    Groups = lists:seq(1,100),
+    LogEntries = lists:seq(1,100000),
+    ok = Handle:txn_begin(), 
+    error_logger:info_msg("starting to add entries!~n", []),
+    {Time, _} = timer:tc(emdb_SUITE, apply_to_inputs, [VNodes, Groups, LogEntries, 
+		    fun(A, B, C, I) ->
+			    Remainder = I rem 100000,
+			    case  Remainder of
+				0 ->
+				    error_logger:info_msg("added ~pM messages~n", [I div 1000000]),
+				    ok = Handle:txn_commit(),
+				    ok = Handle:txn_begin(),
+				    ok = Handle:put({A,B,C},1);
+				_ ->
+				    ok = Handle:put({A,B,C}, 1)
 			    end
-		    end),
+		    end]),
+    error_logger:info_msg("added entries, took ~p~n", [Time]),
     ok = Handle:txn_commit(),
-    %% {Time, _} = timer:tc(fun() -> 
-    %% 				 ok = Handle:txn_begin(),
-    %% 				 [case Handle:put(E, 1) of
-    %% 				      error_txn_full ->
-    %% 					  Handle:txn_commit(),
-    %% 					  Handle:txn_begin(),
-    %% 					  Handle:put(E,1);
-    %% 				      ok -> ok
-    %% 				  end || E <- lists:reverse(Entrys)],
-    %% 				 ok = Handle:txn_commit() 
-    %% 			 end),
-    error_logger:info_msg("added entries, took: ~p~n", [{0}]),
 
     ok = Handle:txn_begin_ro(), %starting read-only transaction
     {error, error_put} = Handle:put(a, "hello_world"),
 
     ok = Handle:cursor_open(),
-%    apply_to_inputs(),
-    walk_db(Handle, Entrys),
+
+    apply_to_inputs(VNodes, Groups, LogEntries,
+		    fun(A,B,C,_) ->
+			    {ok, {{A,B,C}, _}} = Handle:cursor_next()
+		    end),
     error_logger:info_msg("walked db~n", []),
+
     {error, error_cursor_get} = Handle:cursor_next(),
-    {_, [H|LastEntrys]} = lists:split(10, Entrys),
-    {ok, {H, _}} = Handle:cursor_set(H),
-    walk_db(Handle, LastEntrys),
+    {_, LastGroups} = lists:split(5, Groups),
+    {_, LastLogEntries} = lists:split(5, LogEntries),
+    FirstNonDeletedKey = {hd(VNodes), hd(LastGroups), hd(LastLogEntries) - 1},
+    {ok, {_, _}} = Handle:cursor_set(FirstNonDeletedKey),
+    apply_to_inputs(VNodes, Groups, LogEntries,
+		    fun(A,B,C,_) ->
+			    {ok, {{A,B,C}, _}} = Handle:cursor_next()
+		    end, 
+		    VNodes, LastGroups, LastLogEntries),
     error_logger:info_msg("walked db again~n", []),
     {error, error_cursor_get} = Handle:cursor_next(),
-    {ok, {H, _}} = Handle:cursor_set(H),
+    {ok, {FirstNonDeletedKey, _}} = Handle:cursor_set(FirstNonDeletedKey),
     ok = Handle:cursor_close(), %read-only transaction is closed
+
     ok = Handle:cursor_open(),
     {ok, _} = Handle:cursor_next(),
     error_logger:info_msg("starting with deletion~n", []),
-    ok = delete_upto(Handle, H),
+    ok = delete_upto(Handle, FirstNonDeletedKey), % deleting first part of db
     ok = Handle:cursor_close(),
     ok = Handle:cursor_open(),
-    walk_db(Handle,[H|LastEntrys]),    
-    {error, error_cursor_set} = Handle:cursor_set(hd(Entrys)),
-    ok = Handle:cursor_close(). 
+    error_logger:info_msg("checking the non-deleted part of the db~n", []),
+    {ok, {FirstNonDeletedKey, _}} = Handle:cursor_next(), % checking the remaining db
+    apply_to_inputs(VNodes, Groups, LogEntries,
+		    fun(A,B,C,_) ->
+			    {ok, {{A,B,C}, _}} = Handle:cursor_next()
+		    end, 
+		    VNodes, LastGroups, LastLogEntries), 
+    error_logger:info_msg("checked the non-deleted part of the db~n", []),
+    {error, error_cursor_set} = Handle:cursor_set({hd(VNodes), hd(Groups), hd(LogEntries)}),
+    error_logger:info_msg("everything ok, only closing the cursor and txn~n", []),
+    ok = Handle:cursor_close(),
+    timer:sleep(10000). 
 
 delete_upto(Handle, DontDelete) ->
     case Handle:cursor_del() of
@@ -190,7 +198,6 @@ delete_upto(Handle, DontDelete) ->
 	    error_logger:info_msg("deleted upto: ~p~n", [DontDelete]),
 	    ok;
 	{ok, {_K, _}} ->
-	    error_logger:error_msg("in delete_upto, deleted ~p~n", [_K]),
 	    delete_upto(Handle, DontDelete);
 	V ->
 	    error_logger:error_msg("in delete_upto, got unhandled case clause: ~p", [V]),
@@ -198,19 +205,24 @@ delete_upto(Handle, DontDelete) ->
     end.    
 
 apply_to_inputs(D1, D2, D3, Fun) ->
-    HelperF = fun(F, [H1|T1], [H2|T2], [H3|T3]) ->
-		      Fun(H1, H2, H3),
-		      F(F, [H1|T1], [H2|T2], T3);
-		 (F, [H1|[]], [H2|[]], []) ->
+    apply_to_inputs(D1, D2, D3, Fun, D1, D2, D3).
+
+apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I) ->
+    apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I, 0).
+apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I, InitI) ->
+    HelperF = fun(F, [H1|T1], [H2|T2], [H3|T3], I) ->
+		      Fun(H1, H2, H3, I),
+		      F(F, [H1|T1], [H2|T2], T3, I + 1);
+		 (F, [H1|[]], [H2|[]], [], I) ->
 		      ok;
-		 (F, [H1|T1], [H2|[]], []) ->
-		      F(F, T1, D2, D3);
-		 (F, L1, [H2|T2], []) ->
-		      F(F, L1, T2, D3);
-		 (F, [H1|T1], [], []) ->
-		      F(F, T1, D2, D3)
+		 (F, [H1|T1], [H2|[]], [], I) ->
+		      F(F, T1, D2, D3, I + 1);
+		 (F, L1, [H2|T2], [], I) ->
+		      F(F, L1, T2, D3, I + 1);
+		 (F, [H1|T1], [], [], I) ->
+		      F(F, T1, D2, D3, I + 1)
 	      end,
-    HelperF(HelperF, D1, D2, D3).
+    HelperF(HelperF, D1I, D2I, D3I, InitI).
 
 walk_db(_Handle, []) ->
     ok;
