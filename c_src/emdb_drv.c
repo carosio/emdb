@@ -194,6 +194,8 @@ static ERL_NIF_TERM emdb_close_nif (ErlNifEnv * env,
   unsigned long addr;
 
   printf("parsing the handle\n");
+  
+  //  Sleep(1000);
 
   if (! enif_get_ulong(env, argv[0], & addr))
     return enif_make_badarg(env);
@@ -211,8 +213,9 @@ static ERL_NIF_TERM emdb_close_nif (ErlNifEnv * env,
   HASH_DEL(emdb_map, node);
 
   printf("closing the handle\n");
-
-  mdb_env_close(handle);
+  
+  mdb_close(node -> env, node -> dbi);
+  mdb_env_close(node -> env);
   emdb_free(node);
 
   return atom_ok;

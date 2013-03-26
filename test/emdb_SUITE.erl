@@ -190,6 +190,7 @@ cursor_order(Config) ->
     {error, error_cursor_set} = Handle:cursor_set({hd(VNodes), hd(Groups), hd(LogEntries)}),
     error_logger:info_msg("everything ok, only closing the cursor and txn~n", []),
     ok = Handle:cursor_close(),
+    error_logger:info_msg("closed the cursor and txn~n", []),
     timer:sleep(10000). 
 
 delete_upto(Handle, DontDelete) ->
