@@ -37,6 +37,7 @@
 	 txn_begin/0,
 	 txn_begin_ro/0,
 	 txn_commit/0,
+	 txn_abort/0,
 
          put/2,
          append/2,
@@ -60,28 +61,34 @@
 %%====================================================================
 
 %%--------------------------------------------------------------------
-%% @doc 
-%% @end
+%% closes the handle (removes dbi from env and releases env)  
+%% 
 %%--------------------------------------------------------------------
 close() ->
     emdb_drv:close(Handle).
 
 %%--------------------------------------------------------------------
-%% @doc 
-%% @end
+%% stores a key-value-pair in the db associated with the handle.
+%% Keys and values are erlang terms, if no transaction is running
+%% on the handle, one will be started and commited after putting.
 %%--------------------------------------------------------------------
-put(Key, Val) ->%when is_binary(Key) andalso is_binary(Val) ->
+put(Key, Val) ->
     emdb_drv:put(Handle, term_to_binary(Key), term_to_binary(Val)).
 
 
-append(Key, Val) ->%when is_binary(Key) andalso is_binary(Val) ->
+%%--------------------------------------------------------------------
+%% Appends a key-value-pair to the database, needs to be called inside 
+%% a transaction and the key must be the biggest (according to erlang-
+%% term-order) in the whole db.
+%%--------------------------------------------------------------------
+append(Key, Val) ->
     emdb_drv:append(Handle, term_to_binary(Key), term_to_binary(Val)).
 
 %%--------------------------------------------------------------------
-%% @doc 
-%% @end
+%% Returns {ok, Value} for a given Key.
+%% Same transaction-behaviour like put.
 %%--------------------------------------------------------------------
-get(Key)->% when is_binary(Key) ->
+get(Key)->
     case emdb_drv:get(Handle, term_to_binary(Key)) of
 	{ok, V} ->
 	    {ok, binary_to_term(V)};
@@ -90,26 +97,35 @@ get(Key)->% when is_binary(Key) ->
     end.
 
 %%--------------------------------------------------------------------
-%% @doc 
-%% @end
+%% Deletes a database-entry, same transaction-behaviour like put.
 %%--------------------------------------------------------------------
-del(Key) ->% when is_binary(Key) ->
+del(Key) ->
     emdb_drv:del(Handle, term_to_binary(Key)).
 
 %%--------------------------------------------------------------------
-%% @doc 
-%% @end
+%% Updates a database entry, same transaction-behavour like put.
 %%--------------------------------------------------------------------
-update(Key, Val) ->%when is_binary(Key) andalso is_binary(Val) ->
+update(Key, Val) ->
     emdb_drv:update(Handle, term_to_binary(Key), term_to_binary(Val)).
 
-
+%%--------------------------------------------------------------------
+%% Opens a cursor and associates it with the handle.
+%% Will open a transaction if none is running.
+%%--------------------------------------------------------------------
 cursor_open() ->
     emdb_drv:cursor_open(Handle).
 
+%%--------------------------------------------------------------------
+%% Closes a cursor and commits the running transaction.
+%%--------------------------------------------------------------------
 cursor_close() ->
     emdb_drv:cursor_close(Handle).
 
+%%--------------------------------------------------------------------
+%% Returns the next database entry according to the db order (which
+%% should be erlang-term-order).
+%% Will only work on a handle that has an open cursor (and txn).
+%%--------------------------------------------------------------------
 cursor_next() ->
     case emdb_drv:cursor_next(Handle) of
 	{ok, {K,V}} ->
@@ -118,6 +134,10 @@ cursor_next() ->
 	    V
     end.
 
+%%--------------------------------------------------------------------
+%% Sets the cursor to Key and returns the according db entry.
+%% Will only work on a handle that has an open cursor (and txn).
+%%--------------------------------------------------------------------
 cursor_set(Key) ->
     case emdb_drv:cursor_set(Handle, term_to_binary(Key)) of
 	{ok, {K,V}} ->
@@ -126,6 +146,11 @@ cursor_set(Key) ->
 	    V
     end.
 
+%%--------------------------------------------------------------------
+%% Deletes the db entry at current cursor position, moves to the next
+%% db entry afterwards.
+%% Will only work on a handle that has an open cursor (and txn).
+%%--------------------------------------------------------------------
 cursor_del() ->
     case emdb_drv:cursor_del(Handle) of
 	{ok, {K,V}} ->
@@ -134,18 +159,31 @@ cursor_del() ->
 	    V
     end.
 
+%%--------------------------------------------------------------------
+%% Starts a transaction (txn) and associates it with the handle.
+%%--------------------------------------------------------------------
 txn_begin() ->
     emdb_drv:txn_begin(Handle).
 
+%%--------------------------------------------------------------------
+%% Starts a read-only transaction and associates it with the handle.
+%%--------------------------------------------------------------------
 txn_begin_ro() ->
     emdb_drv:txn_begin_ro(Handle).
 
+%%--------------------------------------------------------------------
+%% Commits a transaction, will close and disassociate a running cursor
+%% as well.
+%%--------------------------------------------------------------------
 txn_commit() ->
     emdb_drv:txn_commit(Handle).
 
+txn_abort() ->
+    emdb_drv:txn_abort(Handle).
+
 %%--------------------------------------------------------------------
-%% @doc 
-%% @end
+%% Drops (deletes) the whole db.
+%% Will free all pages, not closing the handle or the dbi.
 %%--------------------------------------------------------------------
 drop() ->
     emdb_drv:drop(Handle).

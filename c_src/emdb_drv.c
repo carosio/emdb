@@ -75,6 +75,7 @@ static struct emdb_map_t * emdb_map = NULL;
 #define EMDB_TXN_COMMIT_ERR          "error_txn_commit"
 #define EMDB_TXN_STARTED_ERR         "error_txn_already_started"
 #define EMDB_TXN_FULL_ERR            "error_txn_full"
+#define EMDB_TXN_ABORT_ERR           "error_txn_abort"
 #define EMDB_NO_TXN_ERR              "error_not_in_a_transaction"
 #define EMDB_OPEN_DBI_ERR            "error_open_dbi"
 #define EMDB_INVALID_HANDLE_ERR      "error_invalid_handle"
@@ -193,26 +194,17 @@ static ERL_NIF_TERM emdb_close_nif (ErlNifEnv * env,
   struct emdb_map_t * node;
   unsigned long addr;
 
-  printf("parsing the handle\n");
-  
-  //  Sleep(1000);
-
   if (! enif_get_ulong(env, argv[0], & addr))
     return enif_make_badarg(env);
   
   handle = (MDB_env *) addr;
 
-  printf("pulling the handle out of the hashmap\n");
-
   HASH_FIND_PTR(emdb_map, & handle, node);
   if (NULL == node)
     return enif_make_atom(env, EMDB_INVALID_HANDLE_ERR);
 
-  printf("deleting the hashmap entry\n");
-
   HASH_DEL(emdb_map, node);
 
-  printf("closing the handle\n");
   if (node -> dbi != NULL)
     mdb_close(node -> env, node -> dbi);
 
@@ -339,7 +331,40 @@ static ERL_NIF_TERM emdb_txn_commit_nif (ErlNifEnv * env,
 }
 
 
+static ERL_NIF_TERM emdb_txn_abort_nif (ErlNifEnv * env,
+					 int argc, const ERL_NIF_TERM argv[])
+{
+  MDB_env * handle;
+  struct emdb_map_t * node;
+  unsigned long addr;
+  char * err;
+  int ret;
+  
+  if (! enif_get_ulong(env, argv[0], & addr))
+    return enif_make_badarg(env);
+  
+  handle = (MDB_env *) addr;
 
+  HASH_FIND_PTR(emdb_map, & handle, node);
+  if (NULL == node)
+    FAIL_FAST(EMDB_INVALID_HANDLE_ERR, err1);
+
+  if (node -> txn == NULL)
+    FAIL_FAST(EMDB_NO_TXN_ERR, err1);
+
+  mdb_txn_abort(node -> txn);
+
+  node -> cursor = NULL;
+  node -> txn = NULL;
+
+  return atom_ok;
+  
+ err1:
+  return enif_make_tuple(env, 2, 
+			 atom_error,
+			 enif_make_atom(env, err));
+  
+}
 
 static ERL_NIF_TERM emdb_put_nif (ErlNifEnv * env,
                                   int argc, const ERL_NIF_TERM argv[])
@@ -526,7 +551,7 @@ static ERL_NIF_TERM emdb_get_nif (ErlNifEnv * env,
   if(mdb_get(txn, node -> dbi, & mkey, & mdata))
     {
       mdb_txn_abort(txn);
-      return atom_undefined;
+      return enif_make_tuple(env, 2, atom_error, atom_undefined);
     }
 
   val.size = mdata.mv_size;
@@ -690,7 +715,7 @@ static ERL_NIF_TERM emdb_drop_nif (ErlNifEnv * env,
 
   if (mdb_txn_begin(handle, NULL, 0, & txn))
     FAIL_FAST(EMDB_TXN_BEGIN_ERR, err2);
-  printf("next: dropping the db\n");
+
   ret = mdb_drop(txn, node -> dbi, 1);
   node -> dbi = NULL;
 
@@ -699,7 +724,6 @@ static ERL_NIF_TERM emdb_drop_nif (ErlNifEnv * env,
 
   if (mdb_txn_commit(txn))
     FAIL_FAST(EMDB_TXN_COMMIT_ERR, err1);
-  printf("dropped the db\n");
 
   return atom_ok;
 
@@ -766,8 +790,6 @@ static ERL_NIF_TERM emdb_cursor_close_nif (ErlNifEnv * env,
   char * err;
   int ret;
   
-  printf("start of cursor_close_nif\n");
-    
   if (! enif_get_ulong(env, argv[0], & addr))
     return enif_make_badarg(env);
   
@@ -779,8 +801,6 @@ static ERL_NIF_TERM emdb_cursor_close_nif (ErlNifEnv * env,
 
   if (node -> cursor == NULL)
     FAIL_FAST(EMDB_CURSOR_NO_CURSOR_ERR, err1);
-  
-  printf("next step: closing the cursor\n");
   
   mdb_cursor_close(node -> cursor);
     
@@ -1039,7 +1059,8 @@ static ErlNifFunc nif_funcs [] = {
   {"cursor_del",  1, emdb_cursor_del_nif},
   {"txn_begin",   1, emdb_txn_begin_nif},
   {"txn_begin_ro",1, emdb_txn_begin_ro_nif},
-  {"txn_commit",  1, emdb_txn_commit_nif}
+  {"txn_commit",  1, emdb_txn_commit_nif},
+  {"txn_abort",  1, emdb_txn_abort_nif}
 };
 
 /* driver entry point */

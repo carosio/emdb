@@ -80,7 +80,6 @@ init_per_testcase(_TestCase, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 end_per_testcase(_TestCase, Config) ->
-    error_logger:info_msg("in end_per_testcase~n", []),
     Handle = proplists:get_value(handle, Config),
     ok = Handle:drop(),
     ok = Handle:close(),
@@ -112,13 +111,13 @@ emdb_basic() ->
 
 emdb_basic(Config) -> 
     Handle = proplists:get_value(handle, Config),
-    undefined = Handle:get(<<"a">>),
+    {error, undefined} = Handle:get(<<"a">>),
     ok = Handle:put(<<"a">>, <<"17">>),
     {ok, <<"17">>} = Handle:get(<<"a">>),
     ok = Handle:update(<<"a">>, <<"hello world">>),
     {ok, <<"hello world">>} = Handle:get(<<"a">>),
     ok = Handle:del(<<"a">>),
-    undefined = Handle:get(<<"a">>),
+    {error, undefined} = Handle:get(<<"a">>),
     ok.
 
 cursor_order() ->
@@ -127,76 +126,85 @@ cursor_order() ->
 cursor_order(Config) ->
     Handle = proplists:get_value(handle, Config),
     VNodes = [vnode1],
-    Groups = lists:seq(1,100),
-    LogEntries = lists:seq(1,100000),
+    Groups = lists:seq(1,10),
+    LogEntries = lists:seq(1,1000000),
     ok = Handle:txn_begin(), 
     error_logger:info_msg("starting to add entries!~n", []),
     {Time, _} = timer:tc(emdb_SUITE, apply_to_inputs, [VNodes, Groups, LogEntries, 
 		    fun(A, B, C, I) ->
-			    Remainder = I rem 100000,
+			    Remainder = I rem 1000000,
 			    case  Remainder of
 				0 ->
-				    error_logger:info_msg("added ~pM messages~n", [I div 1000000]),
+				    error_logger:info_msg("added ~pM messages~n", [I / 1000000]),
 				    ok = Handle:txn_commit(),
 				    ok = Handle:txn_begin(),
-				    ok = Handle:put({A,B,C},1);
-				_ ->
-				    ok = Handle:put({A,B,C}, 1)
+				    ok = Handle:append({A,B,C},1); 
+				_ -> % appending is faster, put can be used
+				    ok = Handle:append({A,B,C}, 1)
 			    end
 		    end]),
-    error_logger:info_msg("added entries, took ~p~n", [Time]),
     ok = Handle:txn_commit(),
+    error_logger:info_msg("added entries, took ~p seconds~n", [Time div 1000000]),
 
-    ok = Handle:txn_begin_ro(), %starting read-only transaction
+    ok = Handle:txn_begin(), % checking that transaction aborting works
+    ok = Handle:put(a, "hello world"),
+    ok = Handle:txn_abort(),
+    {error, undefined} = Handle:get(a),
+
+    ok = Handle:txn_begin_ro(), % starting read-only transaction
     {error, error_put} = Handle:put(a, "hello_world"),
 
     ok = Handle:cursor_open(),
 
-    apply_to_inputs(VNodes, Groups, LogEntries,
-		    fun(A,B,C,_) ->
-			    {ok, {{A,B,C}, _}} = Handle:cursor_next()
-		    end),
-    error_logger:info_msg("walked db~n", []),
-
+    {Time2, _} = timer:tc(emdb_SUITE, apply_to_inputs, [VNodes, Groups, LogEntries,
+							fun(A,B,C,_) ->
+								{ok, {{A,B,C}, _}} = Handle:cursor_next()
+							end]),
+    error_logger:info_msg("checked db order, took ~p seconds~n", [Time2 div 1000000]),
+    
     {error, error_cursor_get} = Handle:cursor_next(),
     {_, LastGroups} = lists:split(5, Groups),
     {_, LastLogEntries} = lists:split(5, LogEntries),
-    FirstNonDeletedKey = {hd(VNodes), hd(LastGroups), hd(LastLogEntries) - 1},
-    {ok, {_, _}} = Handle:cursor_set(FirstNonDeletedKey),
-    apply_to_inputs(VNodes, Groups, LogEntries,
-		    fun(A,B,C,_) ->
-			    {ok, {{A,B,C}, _}} = Handle:cursor_next()
-		    end, 
-		    VNodes, LastGroups, LastLogEntries),
-    error_logger:info_msg("walked db again~n", []),
-    {error, error_cursor_get} = Handle:cursor_next(),
-    {ok, {FirstNonDeletedKey, _}} = Handle:cursor_set(FirstNonDeletedKey),
-    ok = Handle:cursor_close(), %read-only transaction is closed
 
-    ok = Handle:cursor_open(),
-    {ok, _} = Handle:cursor_next(),
-    error_logger:info_msg("starting with deletion~n", []),
-    ok = delete_upto(Handle, FirstNonDeletedKey), % deleting first part of db
+    FirstNonDeletedKey = {hd(VNodes), hd(LastGroups), hd(LastLogEntries) - 1},
+
+    {ok, {FirstNonDeletedKey, _}} = Handle:cursor_set(FirstNonDeletedKey), 
+    ok = Handle:cursor_close(), % read-only transaction is closed
+
+    ok = Handle:cursor_open(), % starting transaction to delete parts of db
+    {ok, _} = Handle:cursor_next(), % moving to the first item to delete
+
+    error_logger:info_msg("deleting first part of the db~n", []),
+    Time3Start = now(),
+    ok = delete_upto(Handle, FirstNonDeletedKey), 
     ok = Handle:cursor_close(),
+    Time3Stop = now(),
+    Time3 = timer:now_diff(Time3Stop, Time3Start),
+    error_logger:info_msg("deleted first part of db, took ~p seconds~n", [Time3 div 1000000]),
+    
     ok = Handle:cursor_open(),
-    error_logger:info_msg("checking the non-deleted part of the db~n", []),
     {ok, {FirstNonDeletedKey, _}} = Handle:cursor_next(), % checking the remaining db
-    apply_to_inputs(VNodes, Groups, LogEntries,
-		    fun(A,B,C,_) ->
-			    {ok, {{A,B,C}, _}} = Handle:cursor_next()
-		    end, 
-		    VNodes, LastGroups, LastLogEntries), 
-    error_logger:info_msg("checked the non-deleted part of the db~n", []),
+    {Time4, ok} = timer:tc(emdb_SUITE, apply_to_inputs, [VNodes, Groups, LogEntries,
+							 fun(A,B,C,_) ->
+								 {ok, {{A,B,C}, _}} = Handle:cursor_next()
+							 end, 
+							 VNodes, LastGroups, LastLogEntries]), 
+    error_logger:info_msg("checked the remaining part of the db, took ~p seconds~n", [Time4 div 1000000]),
+
     {error, error_cursor_set} = Handle:cursor_set({hd(VNodes), hd(Groups), hd(LogEntries)}),
-    error_logger:info_msg("everything ok, only closing the cursor and txn~n", []),
+
     ok = Handle:cursor_close(),
-    error_logger:info_msg("closed the cursor and txn~n", []),
+
     timer:sleep(10000). 
+
+
+
+%% deletes the whole database, starting from the current cursor position, stopping
+%% when running into DontDelete
 
 delete_upto(Handle, DontDelete) ->
     case Handle:cursor_del() of
 	{ok, {DontDelete, _}} ->
-	    error_logger:info_msg("deleted upto: ~p~n", [DontDelete]),
 	    ok;
 	{ok, {_K, _}} ->
 	    delete_upto(Handle, DontDelete);
@@ -205,12 +213,22 @@ delete_upto(Handle, DontDelete) ->
 	    ok
     end.    
 
+
+
+%% Applys Fun to each element of the Finite Space D1xD2xD3
+%% in the same order that is used by mdb (erlang term order).
+%% D1-3 must be provided in the form of lists, containing all the subspaces elements.
+
+%% Fun gets 4 args d1, d2, d3 and i where i counts the calls to Fun.
+%% If called with 7 args, the starting element is defined by the last 3.
+
 apply_to_inputs(D1, D2, D3, Fun) ->
     apply_to_inputs(D1, D2, D3, Fun, D1, D2, D3).
 
 apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I) ->
     apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I, 0).
-apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I, InitI) ->
+
+apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I, InitI) when is_list(D1), is_list(D2), is_list(D3), is_function(Fun) -> 
     HelperF = fun(F, [H1|T1], [H2|T2], [H3|T3], I) ->
 		      Fun(H1, H2, H3, I),
 		      F(F, [H1|T1], [H2|T2], T3, I + 1);
@@ -225,16 +243,3 @@ apply_to_inputs(D1, D2, D3, Fun, D1I, D2I, D3I, InitI) ->
 	      end,
     HelperF(HelperF, D1I, D2I, D3I, InitI).
 
-walk_db(_Handle, []) ->
-    ok;
-
-walk_db(Handle, [H|T]) ->
-    case Handle:cursor_next() of
-	{error, error_cursor_get} ->
-	    1=2;
-	{ok, {H, _}} ->
-	    walk_db(Handle, T);
-	V ->
-	    error_logger:error_msg("in walk_db, got unhandled case clause: ~p, expected:~p~n", [V, H]),
-	    ok
-    end.

@@ -37,7 +37,8 @@
 	 txn_begin/1,
 	 txn_begin_ro/1,
 	 txn_commit/1,
-
+	 txn_abort/1,
+	 
          put/3,
 	 append/3,
          get/2,
@@ -138,6 +139,9 @@ txn_begin_ro(Handle) ->
     ?NOT_LOADED.
 
 txn_commit(Handle) ->
+    ?NOT_LOADED.
+
+txn_abort(Handle) ->
     ?NOT_LOADED.
 
 
