@@ -64,7 +64,18 @@ open(DirName, MapSize) when is_integer(MapSize) andalso MapSize > 0 ->
 open(DirName, MapSize, EnvFlags) when is_integer(MapSize) andalso MapSize > 0 andalso is_integer(EnvFlags) andalso EnvFlags >= 0 ->
     %% ensure directory exists
     ok = filelib:ensure_dir(DirName ++ "/"),
-    decorate(emdb_drv:open(DirName, MapSize, EnvFlags)).
+    Ref = make_ref(),
+    case emdb_drv:open(Ref, DirName, MapSize, EnvFlags) of
+	ok ->
+	    case receive_answer(Ref, 5000) of
+		{error, V} -> 
+		    {error, V};
+		V ->
+		    decorate(V)
+	    end;
+	E -> 
+	    E
+    end.
 
 %%====================================================================
 %% PRIVATE API
@@ -77,3 +88,12 @@ decorate({ok, Handle}) ->
 
 decorate(Error) ->
     Error.
+
+
+
+receive_answer(Ref, Timeout) ->
+    receive 
+        {Ref, Resp} -> Resp
+    after Timeout ->
+        {error, timeout}
+    end.

@@ -103,7 +103,44 @@ groups() ->
 
 
 all() -> 
-    [emdb_basic, cursor_order].
+    [emdb_bulk, emdb_dummy, emdb_basic, cursor_order].
+
+
+
+
+emdb_bulk() ->
+    [].
+
+emdb_bulk(Config) ->
+    Handle = proplists:get_value(handle, Config),
+    Expected = [ok, ok, ok, {error, undefined}, {ok, test}],
+    {ok, Expected} = Handle:bulk_txn([{update, {a, 123}},
+				      {update, {b, test}},
+				      {del, a},
+				      {get, a},
+				      {get, b}]),
+    BatchSize = 10000,
+    Helper = fun(Offset) ->
+		     spawn(fun()-> Handle:txn_begin() end),
+		     Handle:bulk_txn([Handle:prepare_bulk({update, {K, K}}) || K <- lists:seq(Offset * BatchSize ,Offset * BatchSize + BatchSize - 1)])
+	     end,	     
+    [Helper(Offset) || Offset <- lists:seq(1,1000)].
+
+
+
+emdb_dummy() ->
+    [].
+
+emdb_dummy(Config) ->
+    Handle = proplists:get_value(handle, Config),
+    Fun = fun(_) ->
+		  T1 = now(),
+		  {ok, T2} = Handle:dummy_action(),
+		  T3 = now(),
+		  {timer:now_diff(T2, T1),
+		   timer:now_diff(T3, T2)}
+	  end,
+    [Fun(V) || V <- lists:seq(1,100000)].
 
 
 emdb_basic() -> 
@@ -138,9 +175,9 @@ cursor_order(Config) ->
 				    error_logger:info_msg("added ~pM messages~n", [I / 1000000]),
 				    ok = Handle:txn_commit(),
 				    ok = Handle:txn_begin(),
-				    ok = Handle:append({A,B,C},1); 
+				    ok = Handle:put({A,B,C},1); 
 				_ -> % appending is faster, put can be used
-				    ok = Handle:append({A,B,C}, 1)
+				    ok = Handle:put({A,B,C}, 1)
 			    end
 		    end]),
     ok = Handle:txn_commit(),
@@ -150,6 +187,9 @@ cursor_order(Config) ->
     ok = Handle:put(a, "hello world"),
     ok = Handle:txn_abort(),
     {error, undefined} = Handle:get(a),
+
+    error_logger:info_msg("aborted a transaction~n", []),
+    timer:sleep(200),
 
     ok = Handle:txn_begin_ro(), % starting read-only transaction
     {error, error_put} = Handle:put(a, "hello_world"),
@@ -161,7 +201,8 @@ cursor_order(Config) ->
 								{ok, {{A,B,C}, _}} = Handle:cursor_next()
 							end]),
     error_logger:info_msg("checked db order, took ~p seconds~n", [Time2 div 1000000]),
-    
+    timer:sleep(200),
+
     {error, error_cursor_get} = Handle:cursor_next(),
     {_, LastGroups} = lists:split(5, Groups),
     {_, LastLogEntries} = lists:split(5, LogEntries),
@@ -170,6 +211,7 @@ cursor_order(Config) ->
 
     {ok, {FirstNonDeletedKey, _}} = Handle:cursor_set(FirstNonDeletedKey), 
     ok = Handle:cursor_close(), % read-only transaction is closed
+    ok = Handle:txn_commit(),
 
     ok = Handle:cursor_open(), % starting transaction to delete parts of db
     {ok, _} = Handle:cursor_next(), % moving to the first item to delete
@@ -178,6 +220,8 @@ cursor_order(Config) ->
     Time3Start = now(),
     ok = delete_upto(Handle, FirstNonDeletedKey), 
     ok = Handle:cursor_close(),
+    ok = Handle:txn_commit(),
+
     Time3Stop = now(),
     Time3 = timer:now_diff(Time3Stop, Time3Start),
     error_logger:info_msg("deleted first part of db, took ~p seconds~n", [Time3 div 1000000]),
@@ -194,6 +238,7 @@ cursor_order(Config) ->
     {error, error_cursor_set} = Handle:cursor_set({hd(VNodes), hd(Groups), hd(LogEntries)}),
 
     ok = Handle:cursor_close(),
+    ok = Handle:txn_commit(),
 
     timer:sleep(10000). 
 

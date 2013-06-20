@@ -31,28 +31,30 @@
 %% EXPORTS
 %%====================================================================
 -export([
-         open/3,
-         close/1,
+         open/4,
+         close/2,
 
-	 txn_begin/1,
-	 txn_begin_ro/1,
-	 txn_commit/1,
-	 txn_abort/1,
+	 txn_begin/2,
+	 txn_begin_ro/2,
+	 txn_commit/2,
+	 txn_abort/2,
 	 
-         put/3,
-	 append/3,
-         get/2,
-         del/2,
+         put/4,
+	 append/4,
+         get/3,
+         del/3,
 
-         update/3,
+         update/4,
 	 
-	 cursor_open/1,
-	 cursor_close/1,
-	 cursor_next/1,
-	 cursor_set/2,
-	 cursor_del/1,
+	 cursor_open/2,
+	 cursor_close/2,
+	 cursor_next/2,
+	 cursor_set/3,
+	 cursor_del/2,
 
-         drop/1
+         drop/2,
+	 dummy_action/2,
+	 bulk_txn/3
         ]).
 
 
@@ -74,74 +76,39 @@
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-open(_DirName, _MapSize, _EnvFlags) ->
+open(_Ref, _DirName, _MapSize, _EnvFlags) ->
     ?NOT_LOADED.
 
 %%--------------------------------------------------------------------
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-close(_Handle) ->
+close(_Ref, _Handle) ->
     ?NOT_LOADED.
 
 %%--------------------------------------------------------------------
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-put(_Handle, _Key, _Val) ->
+put(_Ref,  _Handle, _Key, _Val) ->
     ?NOT_LOADED.
 
 
-append(_Handle, _Key, _Val) ->
-    ?NOT_LOADED.
-
-%%--------------------------------------------------------------------
-%% @doc 
-%% @end
-%%--------------------------------------------------------------------
-get(_Handle, _Key) ->
+append(_Ref, _Handle, _Key, _Val) ->
     ?NOT_LOADED.
 
 %%--------------------------------------------------------------------
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-del(_Handle, _Key) ->
+get(_Ref, _Handle, _Key) ->
     ?NOT_LOADED.
-
 
 %%--------------------------------------------------------------------
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-update(_Handle, _Key, _Val) ->
-    ?NOT_LOADED.
-
-cursor_open(Handle) ->
-    ?NOT_LOADED.
-
-cursor_close(Handle) ->
-    ?NOT_LOADED.
-
-cursor_next(Handle) ->
-    ?NOT_LOADED.
-
-cursor_set(Handle, Key) ->
-    ?NOT_LOADED.
-
-cursor_del(Handle) ->
-    ?NOT_LOADED.
-
-txn_begin(Handle) ->
-    ?NOT_LOADED.
-
-txn_begin_ro(Handle) ->
-    ?NOT_LOADED.
-
-txn_commit(Handle) ->
-    ?NOT_LOADED.
-
-txn_abort(Handle) ->
+del(_Ref, _Handle, _Key) ->
     ?NOT_LOADED.
 
 
@@ -149,7 +116,49 @@ txn_abort(Handle) ->
 %% @doc 
 %% @end
 %%--------------------------------------------------------------------
-drop(_Handle) ->
+update(_Ref, _Handle, _Key, _Val) ->
+    ?NOT_LOADED.
+
+cursor_open(_Ref, Handle) ->
+    ?NOT_LOADED.
+
+cursor_close(_Ref, Handle) ->
+    ?NOT_LOADED.
+
+cursor_next(_Ref, Handle) ->
+    ?NOT_LOADED.
+
+cursor_set(_Ref, Handle, Key) ->
+    ?NOT_LOADED.
+
+cursor_del(_Ref, Handle) ->
+    ?NOT_LOADED.
+
+txn_begin(_Ref,  Handle) ->
+    ?NOT_LOADED.
+
+txn_begin_ro(_Ref,  Handle) ->
+    ?NOT_LOADED.
+
+txn_commit(_Ref, Handle) ->
+    ?NOT_LOADED.
+
+txn_abort(_Ref, Handle) ->
+    ?NOT_LOADED.
+
+
+%%--------------------------------------------------------------------
+%% @doc 
+%% @end
+%%--------------------------------------------------------------------
+drop(_Ref, _Handle) ->
+    ?NOT_LOADED.
+
+
+dummy_action(_Ref, _Handle) ->
+    ?NOT_LOADED.
+
+bulk_txn(_Ref, _Handle, Operations) ->
     ?NOT_LOADED.
 
 %%====================================================================
