@@ -27,6 +27,8 @@
 
 -module(emdb_oop, [Handle]).
 
+-compile({parse_transform, pmod_pt}).
+
 -define(EMDB_TIMEOUT, 10000).
 
 %%====================================================================
