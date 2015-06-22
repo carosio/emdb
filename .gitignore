@@ -1,0 +1,6 @@
+ebin/
+priv/
+test-log/
+c_src/*.o
+test/*.beam
+*~
